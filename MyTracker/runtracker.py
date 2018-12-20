@@ -41,5 +41,5 @@ def Tracking(Sequence, tracker_list, visualize = False):
     print 'Done!!'
 
 #sequence = Sequence(path='/home/chefei/Documents/UAV-benchmark-S', name='Trunk', region_format='rectangle')
-sequence = Sequence(path='/home/chefei/Documents/UAV-benchmark-S', name='S0001', region_format='rectangle')
+sequence = Sequence(path='/home/chefei/Documents/UAV-benchmark-S', name='double', region_format='rectangle')
 Tracking(sequence,tracker_list=['KCFtracker'],visualize=True)

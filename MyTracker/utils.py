@@ -2,7 +2,8 @@
 import numpy as np
 from scipy import misc
 from skimage import transform
-
+import cv2
+from pyhog import pyhog
 
 
 def get_window_size(target_sz, im_sz, padding):
@@ -147,3 +148,57 @@ def Coord_trans(image_size,tar_center,theta):
     print('center')
     print(center)
     return center
+
+
+def im2c(im,w2c,patch_size):
+    
+    BB = im[:,:,0]
+    GG = im[:,:,1]
+    RR = im[:,:,2]
+    index_im = 1 + np.floor(RR/8) + 32*np.floor(GG/8) + 32*32*np.floor(BB/8)
+    index_im = index_im.astype(np.int32)
+    index_im = index_im-1
+    out =  np.reshape(w2c[index_im,:],[im.shape[0],im.shape[1],w2c.shape[1]])
+    print('out.shape')
+    print(w2c[index_im,:].shape)
+    np.savetxt('001.txt',out[:,:,2])
+    out = transform.resize(out, patch_size,mode='reflect')
+    print(out.shape)
+    return out
+
+def get_feature_map(im_patch,feature_list,num_feature_ch,out_size,w2c,cell_size):
+    #im_patch_size = im_patch.shape
+    #if 'fhog' in feature_list:
+    ##    out_size = np.round(np.array([im_patch_size[0],im_patch_size[1]])/cell_size)
+    #if 'fhog' not in feature_list:
+    #    out_size = np.round(np.array([im_patch_size[0],im_patch_size[1]]))
+    out = np.zeros((np.int(out_size[0]),np.int(out_size[1]),num_feature_ch))
+    print('out_size')
+
+    print(im_patch.shape)
+    channel_id = 0
+    if 'gray' in feature_list:
+        print('using gray feature')
+        im_patch_255 = np.floor(im_patch*255)
+        im_patch_255 = im_patch_255.astype(np.uint8)
+        dstimg = cv2.cvtColor(im_patch_255,cv2.COLOR_BGR2GRAY)
+        np.savetxt('gray.txt',out[:,:,2])
+        out[:,:,channel_id] = transform.resize(dstimg, out_size,mode='reflect')
+        channel_id = channel_id + 1
+    if 'fhog' in feature_list:
+        print('using fhog feature')
+        hog_feature_t = pyhog.features_pedro(im_patch, cell_size)
+        img_crop = np.lib.pad(hog_feature_t, ((1, 1), (1, 1), (0, 0)), 'edge')
+        img_crop = img_crop[:,:,0:18]
+        out[:,:,channel_id:channel_id+18] = img_crop
+        channel_id = channel_id + 18
+    if 'cn' in feature_list:
+        print('using cn feature')
+        im_patch_255 = np.floor(im_patch*255)
+        cn_out = im2c(im_patch_255,w2c,(np.int(out_size[0]),np.int(out_size[1])))
+        out[:,:,channel_id:channel_id+10] = cn_out
+    print(out.shape)
+    return out
+
+
+

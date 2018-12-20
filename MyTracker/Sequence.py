@@ -100,12 +100,14 @@ class Sequence(object):
             #join表示连接目录与文件名
             self.seqdir = os.path.join(path, name)
 
+        flag = False
         self._images=[]
         #向图像列表中添加图像文件
         for _, _, files in os.walk(self.seqdir):
             for file in files:
                 if file.endswith('jpg') or file.endswith('png'):
                     self._images.append(file)
+                    
         #sort是列表内置的一个排序算法，直接修改原列表
         #进行排序，程序的意思是将_images列表里面的文件名的后四个字符(.jpg或.png)去掉
         #并把剩下的字符转为int形式作为排序的key进行排序
