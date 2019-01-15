@@ -166,7 +166,7 @@ def im2c(im,w2c,patch_size):
     print(out.shape)
     return out
 
-def get_feature_map(im_patch,feature_list,num_feature_ch,out_size,w2c,cell_size):
+def get_feature_map(im_patch,feature_list,num_feature_ch,out_size,w2c,cell_size,projection_matrix):
     #im_patch_size = im_patch.shape
     #if 'fhog' in feature_list:
     ##    out_size = np.round(np.array([im_patch_size[0],im_patch_size[1]])/cell_size)
@@ -182,21 +182,28 @@ def get_feature_map(im_patch,feature_list,num_feature_ch,out_size,w2c,cell_size)
         im_patch_255 = np.floor(im_patch*255)
         im_patch_255 = im_patch_255.astype(np.uint8)
         dstimg = cv2.cvtColor(im_patch_255,cv2.COLOR_BGR2GRAY)
-        np.savetxt('gray.txt',out[:,:,2])
+        
         out[:,:,channel_id] = transform.resize(dstimg, out_size,mode='reflect')
         channel_id = channel_id + 1
     if 'fhog' in feature_list:
         print('using fhog feature')
-        hog_feature_t = pyhog.features_pedro(im_patch, cell_size)
+
+        hog_feature_t = pyhog.features_pedro(im_patch/255., cell_size)
         img_crop = np.lib.pad(hog_feature_t, ((1, 1), (1, 1), (0, 0)), 'edge')
-        img_crop = img_crop[:,:,0:18]
-        out[:,:,channel_id:channel_id+18] = img_crop
-        channel_id = channel_id + 18
+        img_crop = img_crop[:,:,18:27]
+        out[:,:,channel_id:channel_id+9] = img_crop
+        channel_id = channel_id + 9
     if 'cn' in feature_list:
         print('using cn feature')
         im_patch_255 = np.floor(im_patch*255)
         cn_out = im2c(im_patch_255,w2c,(np.int(out_size[0]),np.int(out_size[1])))
-        out[:,:,channel_id:channel_id+10] = cn_out
+        cn_out = np.dot(cn_out,projection_matrix)
+        out[:,:,channel_id:channel_id+2] = cn_out
+    if 'raw' in feature_list:
+        print('using raw feature')
+        im_patch_255 = np.floor(im_patch*255)
+        img_colour = im_patch_255 - im_patch_255.mean()
+        out[:,:,channel_id:channel_id+3] = transform.resize(img_colour, out_size,mode='reflect')
     print(out.shape)
     return out
 

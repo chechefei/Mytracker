@@ -18,67 +18,55 @@ from pyheatmap.heatmap import HeatMap
 class KCFtracker:
     def __init__(self, image, region):
         #目标的大小
+        self.frame_num = 1;
         self.target_size = np.array([region.height, region.width])
-        #长和宽中的较大者，用于确定判定为直线的像素长度参考
         s = max(region.height, region.width)
         #目标的位置
         self.pos = [region.y + region.height / 2, region.x + region.width / 2]
-        #特征序列，用于确定需要采用的特征
-        self.feature_list = np.array(['fhog','',''])
+        #视情况看是不是要缩小图像，太大了计算量很大，不划算
+        #self.resize_image = (np.sqrt(np.prod(self.target_size)) >= 100)
+        #if self.resize_image:
+        #    self.pos = np.floor(self.pos/2)
+        #    self.target_size = np.floor(self.target_size/2)
+        #特征序列，用于确定需要采用的特征,gray,fhog,cn,raw
+        self.feature_list = np.array(['','fhog',''])
         #颜色对应矩阵，用于cn特征的提取
         self.w2c = np.load('w2crs.npy')
         #特征通道数的计算，用于初始化特征矩阵
         self.num_feature_ch = 0
         if 'cn' in self.feature_list:
-            self.num_feature_ch = self.num_feature_ch + 10
+            self.num_feature_ch = self.num_feature_ch + 2
         if 'fhog' in self.feature_list:
-            self.num_feature_ch = self.num_feature_ch + 18
+            self.num_feature_ch = self.num_feature_ch + 9
         if 'gray' in self.feature_list:
             self.num_feature_ch = self.num_feature_ch + 1
-        #获取目标区域的图像，用于检测目标朝向，方便下一步修正为水平并生成旋转采样样本
-        #target_patch = utils.get_subwindow(image, self.pos, self.target_size)
-        #进行灰度转换，canny边缘检测和概率hough直线检测，需要注意的是，此时的图像已经是经过归一化的，需要还原为255图像
-        #gray = cv2.cvtColor(np.uint8(target_patch*255.),cv2.COLOR_BGR2GRAY)
-        #edge = cv2.Canny(gray,50,150)
-        #直线检测，确定车辆大致方向
-        #line_threshold = int(np.floor(s/2))
-        #num_line = 0
-        #theta_total = 0
-        #lines = cv2.HoughLinesP(edge, 1, np.pi / 18, line_threshold,maxLineGap=1)
-        #for line in lines:
-        #    x1, y1, x2, y2 = line[0]
-        #    theta = np.arctan((y1-y2)/(x1-x2))
-        #    num_line = num_line + 1
-        #    theta_total = theta_total + theta
-        #通过图像的长宽和目标的方向角度求出目标的长宽，方便在旋转后获取精确的目标图像
-        #theta_ave = theta_total / num_line
-        #print(theta_ave)
-
-        #theta2Horizontal = theta_ave*180/np.pi
-        #进行图像旋转到目标水平
+        if 'raw' in self.feature_list:
+            self.num_feature_ch = self.num_feature_ch + 3
 
         #padding值，搜索区域
         padding = 5
         select_padding = np.int(np.ceil(padding*np.sqrt(2)))
         self.select_patch_size = np.floor(np.array([s,s]) * (1+select_padding))
-        self.select_pos = np.ceil(self.select_patch_size/2)
+        #self.select_pos = np.ceil(self.select_patch_size/2)
+        #提取较大区域的图像，用于旋转生成
         img4sample = utils.get_subwindow(image, self.pos, self.select_patch_size)
-        #center = utils.Coord_trans([img4sample.shape[0],img4sample.shape[1]],self.select_pos,theta2Horizontal)
-        #img4sample_rotate = transform.rotate(img4sample,theta2Horizontal,resize = True)
-        
-        #self.cell_size = np.int(np.round(max(region.height, region.width)/15));
         if 'fhog' in self.feature_list:
-            self.cell_size = 4
+            self.cell_size = np.int(np.round(s/15));
+            print(self.cell_size)
         else:
-            self.cell_size = 1
+            self.cell_size = 4
         
         
         self.patch_size = np.floor(np.array((s* (1+padding),s* (1+padding))))
-        self.patch_size_cell = np.round(self.patch_size/self.cell_size)
+        #self.patch_size = np.floor(self.target_size * (1 + padding))
+        self.patch_size_cell = np.array([round(self.patch_size[0]/self.cell_size),round(self.patch_size[1]/self.cell_size)])
         #用于存储滤波器序列，sample序列和sample傅里叶变换序列，用于后续查表
-        self.filter_sequence = np.zeros((12,np.int((self.patch_size_cell[0])),np.int(self.patch_size_cell[1])))
-        self.x_sequence = np.zeros((12,np.int(self.patch_size_cell[0]),np.int(self.patch_size_cell[1]),self.num_feature_ch))
-        self.xf_sequence = np.zeros((12,np.int(self.patch_size_cell[0]),np.int(self.patch_size_cell[1]),self.num_feature_ch))
+        self.filter_sequence1 = np.zeros((24,np.int((self.patch_size_cell[0])),np.int(self.patch_size_cell[1])))
+        self.x_sequence = np.zeros((24,np.int(self.patch_size_cell[0]),np.int(self.patch_size_cell[1]),self.num_feature_ch))
+        self.xf_sequence1 = np.zeros((24,np.int(self.patch_size_cell[0]),np.int(self.patch_size_cell[1]),self.num_feature_ch))
+        
+        self.filter_sequence = self.filter_sequence1.astype(np.complex128)
+        self.xf_sequence = self.xf_sequence1.astype(np.complex128)
         #self.angle_index = np.int(np.round(-theta2Horizontal/15))
         #if self.angle_index < 0:
         #    self.angle_index = angle_index + 24
@@ -94,39 +82,45 @@ class KCFtracker:
 
         start2 = time.time()
 
-
-        index = np.arange(12)
+        index = np.arange(24)
         for i in index:
-            angle = i*30
-            #
+            angle = i*15
             sample_image = transform.rotate(img4sample,angle,resize = True)
             sample_center = np.floor(np.array((sample_image.shape[0],sample_image.shape[1]))/2)
             img_crop = utils.get_subwindow(sample_image, sample_center, self.patch_size)
-            if i == 5:
-                print(sample_image.shape)
-                print(sample_center)
-                cv2.imshow('response',sample_image)
-                cv2.imshow('sample_image',img_crop)
-                print(img_crop.shape)
+            if i == 0 :
+                im_patch_255 = np.floor(img_crop*255)
+                cn_out = utils.im2c(im_patch_255,self.w2c,self.patch_size)
+                cn_pca = np.reshape(cn_out,[cn_out.shape[0]*cn_out.shape[1],cn_out.shape[2]])
+                data_mean = np.mean(cn_pca,axis = 0)
+                date_matrix = cn_pca - data_mean
+                cov_matrix = 1/(cn_out.shape[0]*cn_out.shape[1]-1)*np.dot(np.transpose(date_matrix),date_matrix)
+                pca_basis = np.linalg.svd(cov_matrix)
+                self.projection_matrix = pca_basis[0][:,0:2]
+                print('date_matrix')
+                print(data_mean.shape)
+                print(date_matrix.shape)
+            print('target_size')
+            print(self.patch_size)
+            #if i == 5:
+            #    print(sample_image.shape)
+             #   print(sample_center)
+            #    cv2.imshow('response',sample_image)
+            #    cv2.imshow('sample_image',img_crop)
+            #    print(img_crop.shape)
             print('img_crop')
             print(img_crop.shape)
             print(self.num_feature_ch)
-
-
-
-
             #hog_feature_t = pyhog.features_pedro(img_crop / 255., self.cell_size)
             #print('hog_feature_t')
             #print(hog_feature_t.shape)
             #img_crop = np.lib.pad(hog_feature_t, ((1, 1), (1, 1), (0, 0)), 'edge')
             #img_crop = img_crop[:,:,0:18]
-            img_crop = utils.get_feature_map(img_crop,self.feature_list,self.num_feature_ch,self.patch_size_cell,self.w2c,self.cell_size)
-
-
-
+            img_cro = utils.get_feature_map(img_crop,self.feature_list,self.num_feature_ch,
+                self.patch_size_cell,self.w2c,self.cell_size,self.projection_matrix)
             #print('img_crop')
             #print(img_crop.shape)
-            self.x = np.multiply(img_crop, self.cos_window[:, :, None])
+            self.x = np.multiply(img_cro, self.cos_window[:, :, None])
             #print("加余弦窗后的大小："+str(self.x.shape[:3]))
             self.xf = np.fft.fft2(self.x, axes=(0, 1))
             #print("傅里叶变换后的大小："+str(self.xf.shape[:3]))
@@ -135,14 +129,16 @@ class KCFtracker:
             lambda_value = 1e-4
             self.alphaf = np.divide(yf, np.fft.fft2(k, axes=(0, 1)) + lambda_value)
             self.filter_sequence[i,:,:] = self.alphaf
+            #np.savetxt('filter_sequence.txt',self.filter_sequence[i,:,:],fmt='%.4f')
+            #np.savetxt('alphaf.txt',self.alphaf,fmt='%.4f')
             self.x_sequence[i,:,:,:] = self.x
             self.xf_sequence[i,:,:,:] = self.xf
             #print('alphaf')
         end2 = time.time()
         print ('生成图像耗时：'+str(end2-start2))
-
         print(self.filter_sequence.shape)
-        #cv2.waitKey(0)
+        print(self.alphaf.shape)
+        cv2.waitKey(0)
         #print(self.filter_sequence)
         self.response_series = np.array([0.,0.,0.])
         self.v_centre = np.array([0.,0.,0.])
@@ -158,21 +154,20 @@ class KCFtracker:
         #hog_feature_t = pyhog.features_pedro(test_crop / 255., self.cell_size)
         #hog_feature_t = np.lib.pad(hog_feature_t, ((1, 1), (1, 1), (0, 0)), 'edge')
         #hog_feature_t = hog_feature_t[:,:,0:18]
-        hog_feature_t = utils.get_feature_map(test_crop,self.feature_list,self.num_feature_ch,self.patch_size_cell,self.w2c,self.cell_size)
+        hog_feature_t = utils.get_feature_map(test_crop,self.feature_list,self.num_feature_ch,self.patch_size_cell,self.w2c,
+            self.cell_size,self.projection_matrix)
 
         z = np.multiply(hog_feature_t, self.cos_window[:, :, None])
         print(z.shape)
         zf = np.fft.fft2(z, axes=(0, 1))
-        angle_index_series = (np.array((self.angle_index-1,self.angle_index,self.angle_index+1))+12)%12
-        response_map_series = np.zeros((12,np.int(self.patch_size_cell[0]),np.int(self.patch_size_cell[1])))
+        angle_index_series = (np.array((self.angle_index-1,self.angle_index,self.angle_index+1))+24)%24
+        response_map_series = np.zeros((24,np.int(self.patch_size_cell[0]),np.int(self.patch_size_cell[1])))
         j = 0
 
         end3 = time.time()
         print ('生成检测用时：'+str(end3-start3))
         start4 = time.time()
     
-
-
         for i in angle_index_series:
             k_test = utils.dense_gauss_kernel(self.feature_bandwidth_sigma,self.xf_sequence[i,:,:,:],self.x_sequence[i,:,:,:],zf,z)
             kf_test = np.fft.fft2(k_test, axes=(0, 1))
@@ -185,15 +180,11 @@ class KCFtracker:
             self.v_centre[j], self.h_centre[j] = np.unravel_index(response.argmax(), response.shape)
             j = j + 1
         print('response_series')
+        f2.write(str(np.max(self.response_series))+'\n')
         max_response_index = np.where(self.response_series==np.max(self.response_series))[0][0]
         print(self.response_series)
         v = self.v_centre[max_response_index]
         h = self.h_centre[max_response_index]
-        print(self.angle_index)
-        print(self.angle_index)
-        print(self.angle_index)
-        print(self.angle_index)
-        print(self.angle_index)
         self.angle_index = angle_index_series[max_response_index]
         response4show = np.reshape(response_map_series[self.angle_index,:,:],
             (np.int(self.patch_size_cell[0]),np.int(self.patch_size_cell[1])))
@@ -202,7 +193,13 @@ class KCFtracker:
         #plt.colorbar()
         #plt.show()
         #plt.pause(0.033)
-        
+        print(self.angle_index)
+        print(self.angle_index)
+        print(self.angle_index)
+        print(self.angle_index)
+        print(self.angle_index)
+        print(self.angle_index)
+        f1.write(str(self.angle_index)+'\n')
         end4 = time.time()
         print ('三个滤波器用时：'+str(end4-start4))
         vert_delta, horiz_delta = [v - response.shape[0] / 2,h - response.shape[1] / 2]
@@ -213,7 +210,6 @@ class KCFtracker:
                              self.target_size[1],
                              self.target_size[0]
                             )
-        
 handle = vot.VOT("rectangle")
 selection = handle.region()
 
@@ -227,6 +223,9 @@ print('go here 1')
 #cv2.namedWindow('response')
 #cv2.namedWindow('sample_image')
 tracker = KCFtracker(image, selection)
+f = open('my.txt','w')
+f1 = open('label.txt','w')
+f2 = open('response.txt','w')
 while True:
     frame_index = handle.return_frame_index()
     print('--------------------------跟踪第'+str(frame_index)+'帧---------------------------------')
@@ -251,6 +250,9 @@ while True:
         break
     #此语句完成了跟踪结果的添加和帧序号的叠加
     handle.report(region)
+    f.write(str(region.x)+','+str(region.y)+','+str(region.width)+','+str(region.height)+'\n')
     
 handle.quit()
+
+f.close()
 

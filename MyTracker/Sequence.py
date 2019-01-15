@@ -111,8 +111,10 @@ class Sequence(object):
         #sort是列表内置的一个排序算法，直接修改原列表
         #进行排序，程序的意思是将_images列表里面的文件名的后四个字符(.jpg或.png)去掉
         #并把剩下的字符转为int形式作为排序的key进行排序
-        self._images.sort(key= lambda x:int(x[0:-4]))
-
+        if 'img' in self._images[0]:
+            self._images.sort(key= lambda x:int(x[3:-4]))
+        else:
+            self._images.sort(key= lambda x:int(x[0:-4]))
         self.groundtruth = []
         #readlines用于读取所有行，直到遇到结束符EOF
         #读取了所有帧的groundtruth，用于和result进行比对，进行精确性分析
@@ -124,7 +126,7 @@ class Sequence(object):
         self._region = convert_region(parse_region(open(os.path.join(self.seqdir, 'groundtruth.txt'), 'r').readline()), region_format)
         self._result = []
         self._region_format = region_format
-        
+    
     def region(self):
         """
         Send configuration message to the client and receive the initialization 
